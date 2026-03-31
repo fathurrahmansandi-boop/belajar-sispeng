@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoring Sensor ESP32</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* ==============================
+       RESET & BASE
+    ============================== */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f4f8;
+      color: #2d3748;
+      font-size: 15px;
+    }
+
+    /* ==============================
+       HEADER
+    ============================== */
+    header {
+      background: linear-gradient(135deg, #2b6cb0, #1a4a8a);
+      color: white;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    #info-koneksi {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      opacity: 0.9;
+    }
+
+    .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .dot-hijau { background: #68d391; box-shadow: 0 0 6px #68d391; }
+    .dot-merah { background: #fc8181; }
+    .dot-kuning { background: #f6e05e; animation: blink 1s infinite; }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ==============================
+       CONTAINER
+    ============================== */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 16px;
+    }
+
+    /* ==============================
+       BANNER ALARM
+    ============================== */
+    #banner-alarm {
+      display: none;
+      background: #fff5f5;
+      border: 2px solid #fc8181;
+      border-left: 6px solid #e53e3e;
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      color: #c53030;
+      font-weight: 600;
+      font-size: 15px;
+      animation: pulseAlarm 2s infinite;
+    }
+
+    @keyframes pulseAlarm {
+      0%,100% { box-shadow: 0 0 0 0 rgba(229,62,62,0.3); }
+      50%      { box-shadow: 0 0 0 8px rgba(229,62,62,0); }
+    }
+
+    /* ==============================
+       KARTU NILAI REAL-TIME
+    ============================== */
+    .kartu-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .kartu {
+      background: white;
+      border-radius: 14px;
+      padding: 22px 18px;
+      text-align: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+      transition: transform 0.2s, box-shadow 0.2s;
+      border-bottom: 4px solid transparent;
+    }
+
+    .kartu:hover { transform: translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+
+    .kartu.suhu   { border-bottom-color: #e53e3e; }
+    .kartu.lembap { border-bottom-color: #3182ce; }
+    .kartu.gas    { border-bottom-color: #d69e2e; }
+    .kartu.status { border-bottom-color: #48bb78; }
+    .kartu.status.alarm { border-bottom-color: #e53e3e; background: #fff5f5; }
+
+    .kartu .ikon { font-size: 26px; margin-bottom: 6px; }
+    .kartu .nilai {
+      font-size: 44px;
+      font-weight: 700;
+      line-height: 1.1;
+      margin: 6px 0 4px;
+    }
+
+    .kartu.suhu   .nilai { color: #e53e3e; }
+    .kartu.lembap .nilai { color: #3182ce; }
+    .kartu.gas    .nilai { color: #d69e2e; }
+    .kartu.status .nilai { font-size: 18px; color: #276749; }
+    .kartu.status.alarm .nilai { color: #c53030; }
+
+    .kartu .satuan { font-size: 13px; color: #718096; }
+    .kartu .waktu-update { font-size: 11px; color: #a0aec0; margin-top: 6px; }
+
+    /* ==============================
+       PANEL (kontrol, grafik, tabel)
+    ============================== */
+    .panel {
+      background: white;
+      border-radius: 14px;
+      padding: 22px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    }
+
+    .panel-judul {
+      font-size: 15px;
+      font-weight: 600;
+      color: #4a5568;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ==============================
+       KONTROL
+    ============================== */
+    .kontrol-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .btn:hover  { opacity: 0.88; }
+    .btn:active { transform: scale(0.97); }
+
+    .btn-start  { background: #48bb78; color: white; }
+    .btn-stop   { background: #fc8181; color: white; }
+    .btn-export { background: #4299e1; color: white; }
+    .btn-hapus  { background: #a0aec0; color: white; }
+    .btn-set    { background: #805ad5; color: white; }
+
+    .grup-interval {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 6px 12px;
+    }
+
+    .grup-interval label { font-size: 13px; color: #4a5568; white-space: nowrap; }
+
+    .grup-interval input {
+      width: 70px;
+      padding: 5px 8px;
+      border: 1px solid #cbd5e0;
+      border-radius: 6px;
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .info-status {
+      font-size: 13px;
+      color: #718096;
+      padding: 6px 12px;
+      background: #f7fafc;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+
+    /* ==============================
+       GRAFIK
+    ============================== */
+    .grafik-wrap {
+      position: relative;
+      height: 280px;
+    }
+
+    /* ==============================
+       TABEL
+    ============================== */
+    .tabel-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+
+    thead th {
+      background: #edf2f7;
+      padding: 11px 14px;
+      text-align: left;
+      font-weight: 600;
+      color: #4a5568;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+    }
+
+    tbody td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #f0f4f8;
+      white-space: nowrap;
+    }
+
+    tbody tr:hover { background: #f7fafc; }
+    tbody tr:last-child td { border-bottom: none; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-normal { background: #c6f6d5; color: #276749; }
+    .badge-alarm  { background: #fed7d7; color: #c53030; }
+
+    /* ==============================
+       KOSONG / LOADING
+    ============================== */
+    .teks-kosong {
+      text-align: center;
+      color: #a0aec0;
+      padding: 30px;
+      font-size: 14px;
+    }
+
+    /* ==============================
+       RESPONSIF
+    ============================== */
+    @media (max-width: 600px) {
+      header h1 { font-size: 15px; }
+      .kartu .nilai { font-size: 34px; }
+      .kartu.status .nilai { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div>🌡️</div>
+  <h1>Monitoring Sensor Real-Time</h1>
+  <div id="info-koneksi">
+    <span class="dot dot-kuning" id="dot-koneksi"></span>
+    <span id="teks-koneksi">Menghubungkan...</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- BANNER ALARM -->
+  <div id="banner-alarm">
+    ⚠️ PERINGATAN: <span id="isi-alarm">-</span>
+  </div>
+
+  <!-- KARTU NILAI REAL-TIME -->
+  <div class="kartu-row">
+    <div class="kartu suhu">
+      <div class="ikon">🌡️</div>
+      <div class="satuan">Suhu</div>
+      <div class="nilai" id="val-suhu">--</div>
+      <div class="satuan">°C</div>
+    </div>
+    <div class="kartu lembap">
+      <div class="ikon">💧</div>
+      <div class="satuan">Kelembapan</div>
+      <div class="nilai" id="val-lembap">--</div>
+      <div class="satuan">%</div>
+    </div>
+    <div class="kartu gas">
+      <div class="ikon">🌫️</div>
+      <div class="satuan">Gas MQ135</div>
+      <div class="nilai" id="val-gas">--</div>
+      <div class="satuan">ADC</div>
+    </div>
+    <div class="kartu status" id="kartu-status">
+      <div class="ikon">✅</div>
+      <div class="satuan">Status</div>
+      <div class="nilai" id="val-status">Menunggu...</div>
+      <div class="waktu-update" id="val-waktu">--</div>
+    </div>
+  </div>
+
+  <!-- PANEL KONTROL -->
+  <div class="panel">
+    <div class="panel-judul">⚙️ Kontrol & Pengaturan</div>
+    <div class="kontrol-grid">
+      <button class="btn btn-start" onclick="kirimPerintah(true)">▶ Start</button>
+      <button class="btn btn-stop"  onclick="kirimPerintah(false)">⏹ Stop</button>
+
+      <div class="grup-interval">
+        <label>Interval:</label>
+        <input type="number" id="input-interval" value="5" min="1" max="3600">
+        <span style="font-size:13px;color:#4a5568">detik</span>
+      </div>
+      <button class="btn btn-set" onclick="aturInterval()">Set Interval</button>
+
+      <button class="btn btn-export" onclick="window.open('/api/export', '_blank')">⬇️ Export CSV</button>
+      <button class="btn btn-hapus"  onclick="hapusData()">🗑 Hapus Data</button>
+
+      <div class="info-status" id="info-status">Status: Memuat...</div>
+    </div>
+  </div>
+
+  <!-- PANEL GRAFIK -->
+  <div class="panel">
+    <div class="panel-judul">📈 Grafik Pembacaan (50 data terakhir)</div>
+    <div class="grafik-wrap">
+      <canvas id="grafikSensor"></canvas>
+    </div>
+  </div>
+
+  <!-- PANEL TABEL -->
+  <div class="panel">
+    <div class="panel-judul">
+      📋 Tabel Data
+      <span style="margin-left:auto; font-size:12px; font-weight:400; color:#a0aec0" id="jumlah-data"></span>
+    </div>
+    <div class="tabel-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Waktu</th>
+            <th>Suhu (°C)</th>
+            <th>Kelembapan (%)</th>
+            <th>Gas MQ135 (ADC)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="isi-tabel">
+          <tr><td colspan="5" class="teks-kosong">Menunggu data dari sensor...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// =============================================
+// INISIALISASI CHART.JS
+// =============================================
+const ctx = document.getElementById('grafikSensor').getContext('2d');
+const grafik = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Suhu (°C)',
+        data: [],
+        borderColor: '#e53e3e',
+        backgroundColor: 'rgba(229,62,62,0.08)',
+        tension: 0.4,
+        fill: true,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      },
+      {
+        label: 'Kelembapan (%)',
+        data: [],
+        borderColor: '#3182ce',
+        backgroundColor: 'rgba(49,130,206,0.08)',
+        tension: 0.4,
+        fill: true,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      },
+      {
+        label: 'Gas (ADC ÷ 10)',
+        data: [],
+        borderColor: '#d69e2e',
+        backgroundColor: 'rgba(214,158,46,0.08)',
+        tension: 0.4,
+        fill: true,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      y: {
+        beginAtZero: false,
+        grid: { color: 'rgba(0,0,0,0.04)' }
+      },
+      x: {
+        ticks: { maxTicksLimit: 8, maxRotation: 30 },
+        grid: { display: false }
+      }
+    },
+    plugins: {
+      legend: { position: 'top' },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const label = ctx.dataset.label;
+            const val   = ctx.parsed.y;
+            if (label.includes('Gas')) return ` Gas: ${(val * 10).toFixed(0)} ADC`;
+            return ` ${label}: ${val}`;
+          }
+        }
+      }
+    }
+  }
+});
+
+// =============================================
+// FUNGSI UTAMA: Ambil & tampilkan data
+// =============================================
+async function perbaruiData() {
+  try {
+    const res  = await fetch('/api/data');
+    if (!res.ok) throw new Error('Gagal ambil data');
+    const data = await res.json();
+
+    // Update indikator koneksi
+    setKoneksi(true);
+
+    if (data.length === 0) {
+      document.getElementById('jumlah-data').textContent = '0 data';
+      return;
+    }
+
+    // Data terbaru untuk kartu
+    const terakhir = data[data.length - 1];
+
+    // Update kartu
+    document.getElementById('val-suhu').textContent   = terakhir.suhu;
+    document.getElementById('val-lembap').textContent = terakhir.kelembapan;
+    document.getElementById('val-gas').textContent    = terakhir.gas;
+    document.getElementById('val-status').textContent = terakhir.status;
+    document.getElementById('val-waktu').textContent  = terakhir.waktu;
+
+    // Update alarm
+    const kartuStatus = document.getElementById('kartu-status');
+    const banner      = document.getElementById('banner-alarm');
+
+    if (terakhir.status !== 'Normal') {
+      kartuStatus.classList.add('alarm');
+      banner.style.display = 'block';
+      document.getElementById('isi-alarm').textContent =
+        terakhir.status + '  |  ' + terakhir.waktu;
+    } else {
+      kartuStatus.classList.remove('alarm');
+      banner.style.display = 'none';
+    }
+
+    // Update grafik (50 terakhir)
+    const dataGrafik = data.slice(-50);
+    grafik.data.labels               = dataGrafik.map(d => {
+      // Tampilkan hanya jam:menit:detik
+      const waktu = String(d.waktu);
+      return waktu.includes(' ') ? waktu.split(' ')[1] : waktu;
+    });
+    grafik.data.datasets[0].data = dataGrafik.map(d => d.suhu);
+    grafik.data.datasets[1].data = dataGrafik.map(d => d.kelembapan);
+    grafik.data.datasets[2].data = dataGrafik.map(d => (d.gas / 10).toFixed(1));
+    grafik.update('none'); // 'none' = tidak animasi tiap update
+
+    // Update tabel (30 terakhir, terbaru di atas)
+    const dataTable = data.slice(-30).reverse();
+    document.getElementById('jumlah-data').textContent = `${data.length} data tersimpan`;
+    document.getElementById('isi-tabel').innerHTML = dataTable.map(d => `
+      <tr>
+        <td>${d.waktu}</td>
+        <td>${d.suhu}</td>
+        <td>${d.kelembapan}</td>
+        <td>${d.gas}</td>
+        <td>
+          <span class="badge ${d.status === 'Normal' ? 'badge-normal' : 'badge-alarm'}">
+            ${d.status}
+          </span>
+        </td>
+      </tr>
+    `).join('');
+
+  } catch (e) {
+    setKoneksi(false);
+    console.error('Error ambil data:', e);
+  }
+}
+
+// =============================================
+// FUNGSI: Update status indikator koneksi
+// =============================================
+function setKoneksi(terhubung) {
+  const dot  = document.getElementById('dot-koneksi');
+  const teks = document.getElementById('teks-koneksi');
+  if (terhubung) {
+    dot.className  = 'dot dot-hijau';
+    teks.textContent = 'Terhubung';
+  } else {
+    dot.className  = 'dot dot-merah';
+    teks.textContent = 'Gagal terhubung';
+  }
+}
+
+// =============================================
+// FUNGSI: Kirim perintah start/stop
+// =============================================
+async function kirimPerintah(jalan) {
+  try {
+    await fetch('/api/pengaturan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jalan })
+    });
+    document.getElementById('info-status').textContent =
+      'Status: Monitoring ' + (jalan ? 'DIHIDUPKAN ▶' : 'DIHENTIKAN ⏹');
+    alert(jalan ? '▶ Monitoring DIHIDUPKAN' : '⏹ Monitoring DIHENTIKAN');
+  } catch (e) {
+    alert('Gagal mengirim perintah. Periksa koneksi server.');
+  }
+}
+
+// =============================================
+// FUNGSI: Atur interval
+// =============================================
+async function aturInterval() {
+  const interval = parseInt(document.getElementById('input-interval').value);
+  if (isNaN(interval) || interval < 1 || interval > 3600) {
+    alert('Interval tidak valid (1 - 3600 detik)');
+    return;
+  }
+  try {
+    await fetch('/api/pengaturan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interval })
+    });
+    document.getElementById('info-status').textContent =
+      `Status: Interval diubah ke ${interval} detik`;
+    alert(`Interval diubah ke ${interval} detik`);
+  } catch (e) {
+    alert('Gagal mengubah interval.');
+  }
+}
+
+// =============================================
+// FUNGSI: Hapus semua data
+// =============================================
+async function hapusData() {
+  if (!confirm('Hapus semua data dari server? Data di kartu SD tidak terpengaruh.')) return;
+  try {
+    const res  = await fetch('/api/data', { method: 'DELETE' });
+    const json = await res.json();
+    alert(json.pesanHapus || 'Data berhasil dihapus');
+    perbaruiData();
+  } catch (e) {
+    alert('Gagal menghapus data.');
+  }
+}
+
+// =============================================
+// MULAI PEMBARUAN OTOMATIS
+// =============================================
+perbaruiData();
+setInterval(perbaruiData, 3000); // Update setiap 3 detik
+</script>
+
+</body>
+</html>
